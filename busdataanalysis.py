@@ -23,26 +23,6 @@ with open('data.json', 'rt', encoding='utf-8') as fh:
 # noinspection PyArgumentList
 datos = [ExtraDato(**x) for x in datos]
 
-# datos2 = []
-# for x in datos:
-#     print(x)
-#     datos2.append(ExtraDato())
-#
-# del datos
-# datos = datos2
-# del datos2
-# p = []
-# for d in datos:
-#     hora, minuto = [int(x) for x in d.ta.split(':')]
-#     dt = (datetime.combine(date.today(), time(hora, minuto)) + timedelta(minutes=d.tr))  # .time()
-#     print(dt)
-#     d.dt = dt
-#     p.append(dt.hour + dt.minute/60)
-#
-# print(type(p[0]))
-# plt.scatter(range(len(p)), p)
-# plt.show()
-
 datos.sort(key=lambda x: x.dt)
 
 medias = []
