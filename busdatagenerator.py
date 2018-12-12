@@ -1,13 +1,49 @@
+import hashlib
 import json
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
+from sqlite3 import IntegrityError
 
 from bs4 import BeautifulSoup as Soup
 from rpi.conexiones import Conexiones
 from rpi.downloader import Downloader
 from rpi.rpi_logging import Logger
 
-logger = Logger.get(__file__, __name__)
+DATABASE_PATH = 'busstats.sqlite'
+
+
+class DataBase:
+    def __init__(self):
+        self.con = None
+        self.cur = None
+
+    def usar(self, database_path=None):
+        if self.con is not None:
+            return
+        if database_path is None:
+            database_path = DATABASE_PATH
+        self.con = sqlite3.connect(database_path)
+
+        self.cur = self.con.cursor()
+        self.cur.execute("""create table if not exists busstats (
+        id varchar primary key,
+        linea varchar not null,
+        ta varchar not null,
+        tr integer not null,
+        id_parada integer not null)""")
+
+    def nuevo_dato(self, dato, quiet=False):
+        data = (dato.id, dato.linea, dato.ta, dato.tr, dato.id_parada)
+        try:
+            self.cur.execute("insert into busstats values(?,?,?,?,?)", data)
+            self.con.commit()
+        except IntegrityError:
+            if quiet is False:
+                print('Ya existe en la base de datos: ' + str(dato))
+
+
+db = DataBase()
 
 
 @dataclass
@@ -22,6 +58,15 @@ class Dato:
         self.ta = str(self.ta)
         self.tr = int(self.tr)
         self.id_parada = int(self.id_parada)
+
+    @property
+    def id(self):
+        p = (self.linea, self.ta, self.id_parada)
+        return hashlib.sha1(str(p).encode()).hexdigest()
+
+    def to_database(self, quiet=False):
+        db.usar()
+        db.nuevo_dato(self, quiet)
 
     def save(self, filename=None):
         if filename is None:
@@ -66,7 +111,7 @@ def get_data(numero_parada, lineas=None):
         try:
             if '+' in t[-1]:
                 t[-1] = 999
-            dato = Dato(t[0], datetime.today().strftime('%H:%M'), int(t[-1]), numero_parada)
+            dato = Dato(t[0], datetime.today().strftime('%Y-%m-%d %H:%M:%S'), int(t[-1]), numero_parada)
         except ValueError:
             continue
 
@@ -79,13 +124,14 @@ def get_data(numero_parada, lineas=None):
     return tuple(o)
 
 
+logger = Logger.get(__file__, __name__)
+
 if __name__ == '__main__':
     try:
         datos = get_data(numero_parada=686, lineas=2)
         datos += get_data(numero_parada=812, lineas=(2, 8))
 
         for foo in datos:
-            print(foo)
             foo.save()
     except Exception as e:
         logger.critical(str(e))

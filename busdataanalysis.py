@@ -1,9 +1,9 @@
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, astuple
 from datetime import time, timedelta, datetime, date
 
 import matplotlib.pyplot as plt
-from numpy import mean
+from pandas import DataFrame
 
 from busdatagenerator import Dato
 
@@ -25,28 +25,33 @@ datos = [ExtraDato(**x) for x in datos]
 
 datos.sort(key=lambda x: x.dt)
 
-medias = []
-temp = []
-for i in range(len(datos)):
-    # print(datos[i])
-    try:
-        if abs(datos[i].dt - datos[i + 1].dt) <= timedelta(minutes=5):
-            temp.append(datos[i])
-        else:
-            datetimes = [x.dt for x in temp]
-            medias.append(mean([x.dt - min(datetimes) for x in temp]) + min(datetimes))
-            temp = []
-    except IndexError:
-        datetimes = [x.dt for x in temp]
-        medias.append(mean([x.dt - min(datetimes) for x in temp]) + min(datetimes))
-        temp = []
+medidas = DataFrame([astuple(x) for x in datos], columns=['linea', 'ta', 'tr', 'id_parada', 'dtm'])
+# medias = []
+# temp = []
+# for i in range(len(datos)):
+#     print(datos[i])
+#     try:
+#         if abs(datos[i].dt - datos[i + 1].dt) <= timedelta(minutes=5):
+#             temp.append(datos[i])
+#         else:
+#             datetimes = [x.dt for x in temp]
+#             medias.append(mean([x.dt - min(datetimes) for x in temp]) + min(datetimes))
+#             temp = []
+#     except IndexError:
+#         datetimes = [x.dt for x in temp]
+#         medias.append(mean([x.dt - min(datetimes) for x in temp]) + min(datetimes))
+#         temp = []
+#
+# medias = [x.time() for x in medias]
+# for i in range(len(medias)):
+#     medias[i] = medias[i].replace(microsecond=0)
+#
+# plt.scatter(range(len(medias)), medias)
+# plt.show()
 
-medias = [x.time() for x in medias]
-for i in range(len(medias)):
-    medias[i] = medias[i].replace(microsecond=0)
+medidas.set_index('ta')
+medidas.loc[:, 'dtm'] = medidas.apply(lambda x: x.dtm.time(), axis=1)
+print(medidas)
 
-for foo in medias:
-    print(foo)
-
-plt.scatter(range(len(medias)), medias)
+medidas.plot()
 plt.show()
