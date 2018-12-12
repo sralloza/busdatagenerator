@@ -10,7 +10,8 @@ from rpi.conexiones import Conexiones
 from rpi.downloader import Downloader
 from rpi.rpi_logging import Logger
 
-DATABASE_PATH = 'busstats.sqlite'
+DATABASE_PATH = 'D:/PYTHON/.development/busdatagenerator/busstats.sqlite'
+JSON_PATH = 'D:/PYTHON/.development/busdatagenerator/data.json'
 
 
 class DataBase:
@@ -70,7 +71,7 @@ class Dato:
 
     def save(self, filename=None):
         if filename is None:
-            filename = 'data.json'
+            filename = JSON_PATH
 
         try:
             with open(filename, 'rt', encoding='utf-8') as fh:

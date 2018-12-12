@@ -5,7 +5,7 @@ from datetime import time, timedelta, datetime, date
 import matplotlib.pyplot as plt
 from pandas import DataFrame
 
-from busdatagenerator import Dato
+from busdatagenerator import Dato, JSON_PATH
 
 
 @dataclass
@@ -17,7 +17,7 @@ class ExtraDato(Dato):
         self.dt = (datetime.combine(date.today(), time(hora, minuto)) + timedelta(minutes=self.tr))  # .time()
 
 def analizar():
-    with open('data.json', 'rt', encoding='utf-8') as fh:
+    with open(JSON_PATH, 'rt', encoding='utf-8') as fh:
         datos = json.load(fh)
 
     # noinspection PyArgumentList

@@ -1,11 +1,11 @@
 import json
 import time
 
-from busdatagenerator import Dato
+from busdatagenerator import Dato, JSON_PATH
 
 if __name__ == '__main__':
     t0 = time.time()
-    with open('data.json') as fh:
+    with open(JSON_PATH) as fh:
         data = json.load(fh)
 
     data = [Dato(**x) for x in data]
