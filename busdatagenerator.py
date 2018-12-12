@@ -130,6 +130,7 @@ if __name__ == '__main__':
     try:
         datos = get_data(numero_parada=686, lineas=2)
         datos += get_data(numero_parada=812, lineas=(2, 8))
+        datos += get_data(numero_parada=833, lineas=(2, 8))
 
         for foo in datos:
             foo.save()
