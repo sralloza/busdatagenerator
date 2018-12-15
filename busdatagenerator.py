@@ -39,9 +39,21 @@ class DataBase:
         try:
             self.cur.execute("insert into busstats values(?,?,?,?,?)", data)
             self.con.commit()
+            return True
         except IntegrityError:
             if quiet is False:
                 print('Ya existe en la base de datos: ' + str(dato))
+            return False
+
+    @staticmethod
+    def get_ids():
+        self = DataBase.__new__(DataBase)
+        self.__init__()
+        self.usar()
+
+        self.cur.execute('select id from busstats')
+        datos = [x[0] for x in self.cur.fetchall()]
+        return tuple(datos)
 
 
 db = DataBase()
@@ -67,7 +79,7 @@ class Dato:
 
     def to_database(self, quiet=False):
         db.usar()
-        db.nuevo_dato(self, quiet)
+        return db.nuevo_dato(self, quiet)
 
     def save(self, filename=None):
         if filename is None:
