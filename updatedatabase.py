@@ -37,7 +37,7 @@ if __name__ == '__main__':
             # print(d.id)
         print()
 
-    print(f'Ejecutado en {time.time() - t0:.2f} segundos')
+    print(f'Ejecutado en {segs_to_str(time.time() - t0)}')
 
     if total == 0:
         print(f"No se han guardado registros")
