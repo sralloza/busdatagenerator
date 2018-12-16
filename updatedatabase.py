@@ -31,7 +31,11 @@ if __name__ == '__main__':
             o = d.to_database(quiet=True)
             if o is True:
                 guardado += 1
-            print(f'\r{i * 100 / total:.2f}% completado', end='')
+
+            velocidad = i / (time.time() - t0)
+            print(f'\r{i * 100 / total:.2f}% completado '
+                  f'(estimado {segs_to_str((total - i) / velocidad)})',
+                  end='')
             # print('\r%.2f %% completado' % (i * 100 / total, ), end='')
             i += 1
             # print(d.id)

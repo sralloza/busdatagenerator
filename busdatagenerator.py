@@ -1,6 +1,9 @@
 import hashlib
 import json
+import os
+import platform
 import sqlite3
+import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from sqlite3 import IntegrityError
@@ -12,6 +15,10 @@ from rpi.rpi_logging import Logger
 
 DATABASE_PATH = 'D:/PYTHON/.development/busdatagenerator/busstats.sqlite'
 JSON_PATH = 'D:/PYTHON/.development/busdatagenerator/data.json'
+
+if platform.system() == 'Linux':
+    DATABASE_PATH = os.path.basename(DATABASE_PATH)
+    JSON_PATH = os.path.basename(JSON_PATH)
 
 
 class DataBase:
@@ -141,13 +148,18 @@ logger = Logger.get(__file__, __name__)
 
 if __name__ == '__main__':
     try:
-        datos = get_data(numero_parada=686, lineas=2)
-        datos += get_data(numero_parada=812, lineas=(2, 8))
-        datos += get_data(numero_parada=833, lineas=(2, 8))
+        datos = []
+        datos += get_data(numero_parada=686, lineas=2)  # Gamazo
+        datos += get_data(numero_parada=682, lineas=8)  # Fray luis de león
+        datos += get_data(numero_parada=812, lineas=(2, 8))  # Fuente dorada
+        datos += get_data(numero_parada=833, lineas=(2, 8))  # Clínico
+        datos += get_data(numero_parada=880, lineas=2)  # Donde nos deja el 2 en ciencias
+        datos += get_data(numero_parada=1191, lineas=8)  # Parada anterior a la del campus
+        datos += get_data(numero_parada=1358, lineas=8)  # Campus miguel delibes
 
         for foo in datos:
             foo.save()
     except Exception as e:
         logger.critical(str(e))
         Conexiones.enviar_email('sralloza@gmail.com', 'Error en la generación de datos del bus',
-                                'se ha producido la siguiente excepción:\n\n\n' + str(e))
+                                'se ha producido la siguiente excepción:\n\n\n' + traceback.format_exc())
