@@ -33,9 +33,10 @@ if __name__ == '__main__':
                 guardado += 1
 
             velocidad = i / (time.time() - t0)
-            print(f'\r{i * 100 / total:.2f}% completado '
-                  f'(estimado {segs_to_str((total - i) / velocidad)})',
-                  end='')
+            restante = segs_to_str((total - i) / velocidad, entero=True)
+            string = f'\r{i * 100 / total:6.2f}% completado (estimado {restante})'
+            long = len(string)
+            print(f'{string:{int(long * 1.25)}s}', end='')
             # print('\r%.2f %% completado' % (i * 100 / total, ), end='')
             i += 1
             # print(d.id)
