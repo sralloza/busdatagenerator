@@ -1,17 +1,23 @@
+import argparse
 import hashlib
 import json
 import os
 import platform
 import sqlite3
+import sys
+import time
 import traceback
 from dataclasses import dataclass
 from datetime import datetime
 from sqlite3 import IntegrityError
+from typing import Iterable
 
 from bs4 import BeautifulSoup as Soup
+from pandas import read_sql, ExcelWriter
 from rpi.conexiones import Conexiones
 from rpi.downloader import Downloader
 from rpi.rpi_logging import Logger
+from rpi.tiempo import segs_to_str
 
 DATABASE_PATH = 'D:/PYTHON/.development/busdatagenerator/busstats.sqlite'
 JSON_PATH = 'D:/PYTHON/.development/busdatagenerator/data.json'
@@ -51,6 +57,20 @@ class DataBase:
             if quiet is False:
                 print('Ya existe en la base de datos: ' + str(dato))
             return False
+
+    def insert_multiple_data(self, data: Iterable):
+        values = []
+        ids = self.get_ids()
+
+        for d in data:
+            if d.id not in ids:
+                values.append((d.id, d.linea, d.ta, d.tr, d.id_parada))
+
+        values = tuple(values)
+
+        self.cur.executemany("insert into busstats values(?,?,?,?,?)", values)
+        self.con.commit()
+        return len(values)
 
     @staticmethod
     def get_ids():
@@ -146,7 +166,8 @@ def get_data(numero_parada, lineas=None):
 
 logger = Logger.get(__file__, __name__)
 
-if __name__ == '__main__':
+
+def generate_data():
     try:
         datos = []
         datos += get_data(numero_parada=686, lineas=2)  # Gamazo
@@ -163,3 +184,86 @@ if __name__ == '__main__':
         logger.critical(str(e))
         Conexiones.enviar_email('sralloza@gmail.com', 'Error en la generación de datos del bus',
                                 'se ha producido la siguiente excepción:\n\n\n' + traceback.format_exc())
+
+
+def to_excel_main():
+    db.usar()
+    df = read_sql('select linea,ta,tr,id_parada from busstats order by ta, linea', db.con)
+
+    print(df)
+
+    ew = ExcelWriter('busstats.xlsx')
+    df.to_excel(ew, index=None)
+    try:
+        ew.save()
+    except PermissionError:
+        os.system('taskkill -f -im excel.exe')
+        time.sleep(0.2)
+        ew.save()
+
+
+def update_database():
+    with open(JSON_PATH) as fh:
+        data = json.load(fh)
+
+    data = [Dato(**x) for x in data]
+
+    ids_guardadas = DataBase.get_ids()
+    ids_nuevas = [x.id for x in data if x.id not in ids_guardadas]
+
+    total_registros = len(ids_nuevas)
+
+    print(f'Encontrados {total_registros} registros nuevos')
+
+    db.usar()
+
+    registros_guardados = db.insert_multiple_data(data)
+
+    return total_registros, registros_guardados
+
+
+def main_update_database():
+    t0 = time.time()
+    total = 0
+    guardado = 0
+    try:
+        total, guardado = update_database()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if total == 0:
+            print(f"No se han guardado registros")
+        else:
+            print(f'Guardados {guardado} registros')
+
+        print(f'Ejecutado en {segs_to_str(time.time() - t0)}')
+
+        if total != 0:
+            print(f'Velocidad media: {total / (time.time() - t0):.2f} registros/s')
+
+        exit(0)
+
+
+if __name__ == '__main__':
+
+    if len(sys.argv) == 1 and platform.system() == 'Linux':
+        sys.argv.append('-generar')
+
+    parser = argparse.ArgumentParser(prog='BusStats')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('-generar', action='store_true')
+    group.add_argument('-actualizar', '-updatedatabase', action='store_true')
+    group.add_argument('-numeroregistros', action='store_true')
+    group.add_argument('-toexcel', '-excel', action='store_true')
+
+    opt = vars(parser.parse_args())
+
+    if opt['generar'] is True:
+        generate_data()
+        exit()
+    elif opt['actualizar'] is True:
+        main_update_database()
+        exit()
+    elif opt['toexcel'] is True:
+        to_excel_main()
+        exit()
