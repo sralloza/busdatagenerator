@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup as Soup
 from pandas import DataFrame
 from rpi.downloader import Downloader
 
-from busdatagenerator import Dato, DataBase
+from busdatagenerator import Register, DataBase
 
 
 class InvalidStopIdError(Exception):
@@ -15,14 +15,14 @@ class InvalidStopIdError(Exception):
 
 
 @dataclass
-class ExtraDato(Dato):
+class ExtraDato(Register):
     dt: datetime = field(init=False)
     ta: datetime
 
     def __post_init__(self):
         self.ta = datetime.strptime(self.ta, '%Y-%m-%d %H:%M:%S')
         self.ta = self.ta.replace(second=0)
-        self.dt = self.ta + timedelta(seconds=self.tr * 60)
+        self.dt = self.ta + timedelta(seconds=self.delay_minutes * 60)
 
 
 class GestorDatos(list):
@@ -47,7 +47,7 @@ class GestorDatos(list):
         self = GestorDatos.__new__(cls)
         self.__init__()
         self.database = DataBase()
-        self.database.usar()
+        self.database.use()
         datos = self.database.cur.execute("select * from busstats")
 
         # with open(JSON_PATH, 'rt', encoding='utf-8') as fh:

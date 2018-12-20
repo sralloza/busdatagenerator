@@ -35,7 +35,7 @@ class DataBase:
         self.con = None
         self.cur = None
 
-    def usar(self, database_path=None):
+    def use(self, database_path=None):
         if self.con is not None:
             return
         if database_path is None:
@@ -45,23 +45,23 @@ class DataBase:
         self.cur = self.con.cursor()
         self.cur.execute("""create table if not exists busstats (
         id varchar primary key,
-        linea varchar not null,
-        ta varchar not null,
-        tr integer not null,
-        id_parada integer not null)""")
+        line varchar not null,
+        actual_time varchar not null,
+        delay_minutes integer not null,
+        stop_id integer not null)""")
 
-    def nuevo_dato(self, dato, quiet=False):
-        data = (dato.id, dato.linea, dato.ta, dato.tr, dato.id_parada)
+    def new_register(self, register, quiet=False):
+        data = (register.id, register.line, register.actual_time, register.delay_minutes, register.stop_id)
         try:
             self.cur.execute("insert into busstats values(?,?,?,?,?)", data)
             self.con.commit()
             return True
         except IntegrityError:
             if quiet is False:
-                print('Ya existe en la base de datos: ' + str(dato))
+                print('Register already exists: ' + str(register))
             return False
 
-    def insert_multiple_data(self, data: Iterable):
+    def insert_multiple_registers(self, data: Iterable):
         values = []
         ids = self.get_ids()
 
@@ -79,37 +79,37 @@ class DataBase:
     def get_ids():
         self = DataBase.__new__(DataBase)
         self.__init__()
-        self.usar()
+        self.use()
 
         self.cur.execute('select id from busstats')
-        datos = [x[0] for x in self.cur.fetchall()]
-        return tuple(datos)
+        registers = [x[0] for x in self.cur.fetchall()]
+        return tuple(registers)
 
 
 db = DataBase()
 
 
 @dataclass
-class Dato:
-    linea: str
-    ta: str  # Tiempo actual
-    tr: int  # Tiempo restante
-    id_parada: int
+class Register:
+    line: str
+    actual_time: str
+    delay_minutes: int
+    stop_id: int
 
     def __post_init__(self):
-        self.linea = str(self.linea)
-        self.ta = str(self.ta)
-        self.tr = int(self.tr)
-        self.id_parada = int(self.id_parada)
+        self.line = str(self.line)
+        self.actual_time = str(self.actual_time)
+        self.delay_minutes = int(self.delay_minutes)
+        self.stop_id = int(self.stop_id)
 
     @property
     def id(self):
-        p = (self.linea, self.ta, self.id_parada)
+        p = (self.line, self.actual_time, self.stop_id)
         return hashlib.sha1(str(p).encode()).hexdigest()
 
     def to_database(self, quiet=False):
-        db.usar()
-        return db.nuevo_dato(self, quiet)
+        db.use()
+        return db.new_register(self, quiet)
 
     def save(self, filename=None):
         if filename is None:
@@ -127,22 +127,22 @@ class Dato:
             json.dump(data, fh, ensure_ascii=False, indent=4, sort_keys=True)
 
 
-def get_data(numero_parada, lineas=None):
-    if lineas is None:
-        lineas = None
-    elif isinstance(lineas, int):
-        lineas = (str(lineas),)
-    elif isinstance(lineas, str):
-        lineas = (lineas,)
+def analyse_stop(stop_number: int, lines=None):
+    if lines is None:
+        lines = None
+    elif isinstance(lines, int):
+        lines = (str(lines),)
+    elif isinstance(lines, str):
+        lines = (lines,)
     else:
-        lineas = tuple([str(x) for x in lineas])
+        lines = tuple([str(x) for x in lines])
 
     d = Downloader()
-    r = d.get(f'http://www.auvasa.es/parada.asp?codigo={numero_parada}')
+    r = d.get(f'http://www.auvasa.es/parada.asp?codigo={stop_number}')
     s = Soup(r.content, 'html.parser')
 
     search = s.findAll('tr')
-    o = []
+    output = []
 
     for item in search:
         search2 = list(item.findAll('td'))
@@ -154,17 +154,17 @@ def get_data(numero_parada, lineas=None):
         try:
             if '+' in t[-1]:
                 t[-1] = 999
-            dato = Dato(t[0], datetime.today().strftime('%Y-%m-%d %H:%M:%S'), int(t[-1]), numero_parada)
+            register = Register(t[0], datetime.today().strftime('%Y-%m-%d %H:%M:%S'), int(t[-1]), stop_number)
         except ValueError:
             continue
 
-        if lineas is not None:
-            if dato.linea in lineas:
-                o.append(dato)
+        if lines is not None:
+            if register.line in lines:
+                output.append(register)
         else:
-            o.append(dato)
+            output.append(register)
 
-    return tuple(o)
+    return tuple(output)
 
 
 logger = Logger.get(__file__, __name__)
@@ -172,17 +172,17 @@ logger = Logger.get(__file__, __name__)
 
 def generate_data():
     try:
-        datos = []
-        datos += get_data(numero_parada=686, lineas=2)  # Gamazo
-        datos += get_data(numero_parada=682, lineas=8)  # Fray luis de león
-        datos += get_data(numero_parada=812, lineas=(2, 8))  # Fuente dorada
-        datos += get_data(numero_parada=833, lineas=(2, 8))  # Clínico
-        datos += get_data(numero_parada=880, lineas=2)  # Donde nos deja el 2 en ciencias
-        datos += get_data(numero_parada=1191, lineas=8)  # Parada anterior a la del campus
-        datos += get_data(numero_parada=1358, lineas=8)  # Campus miguel delibes
+        data = []
+        data += analyse_stop(stop_number=686, lines=2)  # Gamazo
+        data += analyse_stop(stop_number=682, lines=8)  # Fray luis de león
+        data += analyse_stop(stop_number=812, lines=(2, 8))  # Fuente dorada
+        data += analyse_stop(stop_number=833, lines=(2, 8))  # Clínico
+        data += analyse_stop(stop_number=880, lines=2)  # Donde nos deja el 2 en ciencias
+        data += analyse_stop(stop_number=1191, lines=8)  # Parada anterior a la del campus
+        data += analyse_stop(stop_number=1358, lines=8)  # Campus miguel delibes
 
-        for foo in datos:
-            foo.save()
+        for register in data:
+            register.save()
     except Exception as e:
         logger.critical(str(e))
         Conexiones.enviar_email('sralloza@gmail.com', 'Error en la generación de datos del bus',
@@ -190,10 +190,10 @@ def generate_data():
 
 
 def to_excel_main():
-    db.usar()
+    db.use()
     df = read_sql('select linea,ta,tr,id_parada from busstats order by ta, linea', db.con)
 
-    print(f'Dimensiones: {df.shape}')
+    print(f'Dimensions: {df.shape}')
 
     ew = ExcelWriter('busstats.xlsx')
     df.to_excel(ew, index=None)
@@ -209,109 +209,109 @@ def update_database():
     with open(JSON_PATH) as fh:
         data = json.load(fh)
 
-    data = [Dato(**x) for x in data]
+    data = [Register(**x) for x in data]
 
-    ids_guardadas = DataBase.get_ids()
-    ids_nuevas = [x.id for x in data if x.id not in ids_guardadas]
+    saved_ids = DataBase.get_ids()
+    new_ids = [x.id for x in data if x.id not in saved_ids]
 
-    total_registros = len(ids_nuevas)
+    registers_number = len(new_ids)
 
-    print(f'Encontrados {total_registros} registros nuevos')
+    print(f'Encontrados {registers_number} registros nuevos')
 
-    db.usar()
+    db.use()
 
-    registros_guardados = db.insert_multiple_data(data)
+    saved = db.insert_multiple_registers(data)
 
-    return total_registros, registros_guardados
+    return registers_number, saved
 
 
 def main_update_database():
     if platform.system() == 'Linux':
-        raise InvalidPlatformError('Sólo se puede usar en windows')
+        raise InvalidPlatformError('Database can only be used in Windows')
     from rpi.tiempo import segs_to_str
     t0 = time.time()
     total = 0
-    guardado = 0
+    saved = 0
     try:
-        total, guardado = update_database()
+        total, saved = update_database()
     except KeyboardInterrupt:
         pass
     finally:
         if total == 0:
-            print(f"No se han guardado registros")
+            print(f"No registers have been saved")
         else:
-            print(f'Guardados {guardado} registros')
+            print(f'Saved {saved} registers')
 
-        print(f'Ejecutado en {segs_to_str(time.time() - t0)}')
+        print(f'Executed in {segs_to_str(time.time() - t0)}')
 
         if total != 0:
-            print(f'Velocidad media: {total / (time.time() - t0):.2f} registros/s')
+            print(f'Mean speed: {total / (time.time() - t0):.2f} registers/s')
 
-        if total == guardado:
+        if total == saved:
             os.remove(JSON_PATH)
-            print(f'Eliminado archivo {JSON_PATH!r}')
+            print(f'Deleted file {JSON_PATH!r}')
         else:
-            print(f'Archivo {JSON_PATH!r} no eliminado (total != guardado, {total} != {guardado})')
+            print(f'File {JSON_PATH!r} has not been removed (total != saved, {total} != {saved})')
 
         exit(0)
 
 
-def enviar_por_correo(path=None):
+def send_by_email(path=None):
     if path is None:
         path = JSON_PATH
 
-    segundos = datetime.today().second
+    seconds = datetime.today().second
     i = 0
 
-    while segundos != 15:
+    while seconds != 15:
         if i == 0:
-            estimado = 15 - segundos
-            while estimado < 0:
-                estimado += 60
-            print(f'Esperando a segundos=15 ({estimado})')
+            estimation = 15 - seconds
+            while estimation < 0:
+                estimation += 60
+            print(f'Waiting for seconds=15 ({estimation})')
         time.sleep(0.5)
-        segundos = datetime.today().second
+        seconds = datetime.today().second
         i += 1
 
-    print('Enviando')
+    print('Sending...')
 
     if os.path.isfile(path) is False:
-        print(f'No existe el archivo {path!r}')
+        print(f'File not exists {path!r}')
         return
 
     r = Conexiones.enviar_email('sralloza@gmail.com', 'Datos de autobuses', '', files=path)
 
     if r is True:
         os.remove(path)
-        print('Archivo eliminado')
+        print('File deleted')
     else:
-        print('No se puede eliminar el archivo')
+        print('File can not be deleted')
 
 
 if __name__ == '__main__':
 
     if len(sys.argv) == 1 and platform.system() == 'Linux':
-        sys.argv.append('-generar')
+        sys.argv.append('-generate')
 
     parser = argparse.ArgumentParser(prog='BusStats')
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('-generar', action='store_true')
-    group.add_argument('-actualizar', '-updatedatabase', action='store_true')
-    group.add_argument('-numeroregistros', action='store_true')
+    group.add_argument('-generate', action='store_true')
+    group.add_argument('-update', '-updatedatabase', action='store_true')
+    group.add_argument('-registers', action='store_true')
     group.add_argument('-toexcel', '-excel', action='store_true')
-    group.add_argument('-mail', '-enviar', '-correo', action='store_true')
+    group.add_argument('-mail', '-send', action='store_true')
 
     opt = vars(parser.parse_args())
 
-    if opt['generar'] is True:
+    if opt['generate'] is True:
         generate_data()
         exit()
-    elif opt['actualizar'] is True:
+    elif opt['update'] is True:
         main_update_database()
         exit()
     elif opt['toexcel'] is True:
         to_excel_main()
         exit()
     elif opt['mail'] is True:
-        enviar_por_correo()
+        send_by_email()
         exit()
