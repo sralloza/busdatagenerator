@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import argparse
 import hashlib
 import json
@@ -61,13 +63,18 @@ class DataBase:
                 print('Register already exists: ' + str(register))
             return False
 
-    def insert_multiple_registers(self, data: Iterable):
+    def insert_multiple_registers(self, data):
+        """Saves multiple registers at once.
+
+        :type data: Iterable[Register]
+        """
+
         values = []
         ids = self.get_ids()
 
         for d in data:
             if d.id not in ids:
-                values.append((d.id, d.linea, d.ta, d.tr, d.id_parada))
+                values.append((d.id, d.line, d.actual_time, d.delay_minutes, d.stop_id))
 
         values = tuple(values)
 
@@ -206,8 +213,12 @@ def to_excel_main():
 
 
 def update_database():
-    with open(JSON_PATH) as fh:
-        data = json.load(fh)
+    try:
+        with open(JSON_PATH) as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        print(f'File {JSON_PATH!r} does not exist')
+        return 0, 0, False
 
     data = [Register(**x) for x in data]
 
@@ -216,13 +227,13 @@ def update_database():
 
     registers_number = len(new_ids)
 
-    print(f'Encontrados {registers_number} registros nuevos')
+    print(f'Found {registers_number} new registers')
 
     db.use()
 
     saved = db.insert_multiple_registers(data)
 
-    return registers_number, saved
+    return registers_number, saved, True
 
 
 def main_update_database():
@@ -232,12 +243,16 @@ def main_update_database():
     t0 = time.time()
     total = 0
     saved = 0
+    secure_token = False
+
     try:
-        total, saved = update_database()
+        total, saved, secure_token = update_database()
     except KeyboardInterrupt:
         pass
+    except Exception:
+        raise
     finally:
-        if total == 0:
+        if saved == 0:
             print(f"No registers have been saved")
         else:
             print(f'Saved {saved} registers')
@@ -247,14 +262,15 @@ def main_update_database():
         if total != 0:
             print(f'Mean speed: {total / (time.time() - t0):.2f} registers/s')
 
-        if total == saved:
+        if total == saved and secure_token is True:
             os.remove(JSON_PATH)
             print(f'Deleted file {JSON_PATH!r}')
         else:
-            print(f'File {JSON_PATH!r} has not been removed (total != saved, {total} != {saved})')
+            print(f'File {JSON_PATH!r} has not been removed (total != saved'
+                  f', {total} != {saved}, securetoken={secure_token})')
 
-        exit(0)
 
+#
 
 def send_by_email(path=None):
     if path is None:
@@ -276,7 +292,7 @@ def send_by_email(path=None):
     print('Sending...')
 
     if os.path.isfile(path) is False:
-        print(f'File not exists {path!r}')
+        print(f'File {path!r} does not exist')
         return
 
     r = Conexiones.enviar_email('sralloza@gmail.com', 'Datos de autobuses', '', files=path)
@@ -289,7 +305,6 @@ def send_by_email(path=None):
 
 
 if __name__ == '__main__':
-
     if len(sys.argv) == 1 and platform.system() == 'Linux':
         sys.argv.append('-generate')
 
