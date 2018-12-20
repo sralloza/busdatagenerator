@@ -17,14 +17,17 @@ from pandas import read_sql, ExcelWriter
 from rpi.conexiones import Conexiones
 from rpi.downloader import Downloader
 from rpi.rpi_logging import Logger
-from rpi.tiempo import segs_to_str
-
-DATABASE_PATH = 'D:/PYTHON/.development/busdatagenerator/busstats.sqlite'
-JSON_PATH = 'D:/PYTHON/.development/busdatagenerator/data.json'
 
 if platform.system() == 'Linux':
-    DATABASE_PATH = os.path.basename(DATABASE_PATH)
-    JSON_PATH = os.path.basename(JSON_PATH)
+    DATABASE_PATH = None
+    JSON_PATH = '/home/pi/data.json'
+else:
+    DATABASE_PATH = 'D:/PYTHON/.development/busdatagenerator/busstats.sqlite'
+    JSON_PATH = 'D:/Sistema/Downloads/data.json'
+
+
+class InvalidPlatformError(Exception):
+    """Plataforma inválida"""
 
 
 class DataBase:
@@ -190,7 +193,7 @@ def to_excel_main():
     db.usar()
     df = read_sql('select linea,ta,tr,id_parada from busstats order by ta, linea', db.con)
 
-    print(df)
+    print(f'Dimensiones: {df.shape}')
 
     ew = ExcelWriter('busstats.xlsx')
     df.to_excel(ew, index=None)
@@ -223,6 +226,9 @@ def update_database():
 
 
 def main_update_database():
+    if platform.system() == 'Linux':
+        raise InvalidPlatformError('Sólo se puede usar en windows')
+    from rpi.tiempo import segs_to_str
     t0 = time.time()
     total = 0
     guardado = 0
@@ -241,7 +247,45 @@ def main_update_database():
         if total != 0:
             print(f'Velocidad media: {total / (time.time() - t0):.2f} registros/s')
 
+        if total == guardado:
+            os.remove(JSON_PATH)
+            print(f'Eliminado archivo {JSON_PATH!r}')
+        else:
+            print(f'Archivo {JSON_PATH!r} no eliminado (total != guardado, {total} != {guardado})')
+
         exit(0)
+
+
+def enviar_por_correo(path=None):
+    if path is None:
+        path = JSON_PATH
+
+    segundos = datetime.today().second
+    i = 0
+
+    while segundos != 15:
+        if i == 0:
+            estimado = 15 - segundos
+            while estimado < 0:
+                estimado += 60
+            print(f'Esperando a segundos=15 ({estimado})')
+        time.sleep(0.5)
+        segundos = datetime.today().second
+        i += 1
+
+    print('Enviando')
+
+    if os.path.isfile(path) is False:
+        print(f'No existe el archivo {path!r}')
+        return
+
+    r = Conexiones.enviar_email('sralloza@gmail.com', 'Datos de autobuses', '', files=path)
+
+    if r is True:
+        os.remove(path)
+        print('Archivo eliminado')
+    else:
+        print('No se puede eliminar el archivo')
 
 
 if __name__ == '__main__':
@@ -255,6 +299,7 @@ if __name__ == '__main__':
     group.add_argument('-actualizar', '-updatedatabase', action='store_true')
     group.add_argument('-numeroregistros', action='store_true')
     group.add_argument('-toexcel', '-excel', action='store_true')
+    group.add_argument('-mail', '-enviar', '-correo', action='store_true')
 
     opt = vars(parser.parse_args())
 
@@ -266,4 +311,7 @@ if __name__ == '__main__':
         exit()
     elif opt['toexcel'] is True:
         to_excel_main()
+        exit()
+    elif opt['mail'] is True:
+        enviar_por_correo()
         exit()
