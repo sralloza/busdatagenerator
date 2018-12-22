@@ -294,15 +294,18 @@ def send_by_email(path=None):
     seconds = datetime.today().second
     i = 0
 
-    while seconds != 15:
-        if i == 0:
-            estimation = 15 - seconds
-            while estimation < 0:
-                estimation += 60
-            print(f'Waiting for seconds=15 ({estimation})')
-        time.sleep(0.5)
-        seconds = datetime.today().second
-        i += 1
+    try:
+        while seconds != 15:
+            if i == 0:
+                estimation = 15 - seconds
+                while estimation < 0:
+                    estimation += 60
+                print(f'Waiting for seconds=15 ({estimation})')
+            time.sleep(0.5)
+            seconds = datetime.today().second
+            i += 1
+    except KeyboardInterrupt:
+        print('Forcing sending...')
 
     print('Sending...')
 
