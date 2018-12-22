@@ -2,13 +2,13 @@
 
 import argparse
 import hashlib
-import json
 import os
 import platform
 import sqlite3
 import sys
 import time
 import traceback
+from csv import DictReader, DictWriter
 from dataclasses import dataclass
 from datetime import datetime
 from sqlite3 import IntegrityError
@@ -23,9 +23,11 @@ from rpi.rpi_logging import Logger
 if platform.system() == 'Linux':
     DATABASE_PATH = None
     JSON_PATH = '/home/pi/data.json'
+    CSV_PATH = '/home/pi/busstats.csv'
 else:
     DATABASE_PATH = 'D:/PYTHON/.development/busdatagenerator/busstats.sqlite'
     JSON_PATH = 'D:/Sistema/Downloads/data.json'
+    CSV_PATH = 'D:/Sistema/Downloads/busstats.csv'
 
 
 class InvalidPlatformError(Exception):
@@ -95,6 +97,12 @@ class DataBase:
 
 db = DataBase()
 
+def get_length_database():
+    db.use()
+    db.cur.execute("select count(id) from busstats")
+    total = db.cur.fetchone()[0]
+    print(f'{total} registers saved in database')
+
 
 @dataclass
 class Register:
@@ -118,20 +126,30 @@ class Register:
         db.use()
         return db.new_register(self, quiet)
 
-    def save(self, filename=None):
-        if filename is None:
-            filename = JSON_PATH
 
-        try:
-            with open(filename, 'rt', encoding='utf-8') as fh:
-                data = json.load(fh)
-        except FileNotFoundError:
-            data = []
+def load_registers():
+    try:
+        with open(CSV_PATH, 'r', encoding='utf-8') as csv_file:
+            csv_reader = DictReader(csv_file)
+            next(csv_reader)
 
-        data.append(vars(self))
+            output = []
+            for row in csv_reader:
+                output.append(Register(**row))
+            return output
+    except FileNotFoundError:
+        print(f'File not found: {CSV_PATH!r}')
+        return []
 
-        with open(filename, 'wt', encoding='utf-8') as fh:
-            json.dump(data, fh, ensure_ascii=False, indent=4, sort_keys=True)
+
+def save_registers(registers):
+    with open(CSV_PATH, 'w', encoding='utf-8') as csv_file:
+        fieldnames = ['line', 'actual_time', 'delay_minutes', 'stop_id']
+        csv_writer = DictWriter(csv_file, fieldnames, quotechar='|', lineterminator='\n')
+
+        csv_writer.writeheader()
+
+        csv_writer.writerows([vars(register) for register in registers])
 
 
 def analyse_stop(stop_number: int, lines=None):
@@ -179,18 +197,19 @@ logger = Logger.get(__file__, __name__)
 
 def generate_data():
     try:
-        data = []
-        data += analyse_stop(stop_number=686, lines=2)  # Gamazo
-        data += analyse_stop(stop_number=682, lines=8)  # Fray luis de león
-        data += analyse_stop(stop_number=812, lines=(2, 8))  # Fuente dorada
-        data += analyse_stop(stop_number=833, lines=(2, 8))  # Clínico
-        data += analyse_stop(stop_number=880, lines=2)  # Donde nos deja el 2 en ciencias
-        data += analyse_stop(stop_number=1191, lines=8)  # Parada anterior a la del campus
-        data += analyse_stop(stop_number=1358, lines=8)  # Campus miguel delibes
+        registers = load_registers()
+        registers += analyse_stop(stop_number=686, lines=2)  # Gamazo
+        registers += analyse_stop(stop_number=682, lines=8)  # Fray luis de león
+        registers += analyse_stop(stop_number=812, lines=(2, 8))  # Fuente dorada
+        registers += analyse_stop(stop_number=833, lines=(2, 8))  # Clínico
+        registers += analyse_stop(stop_number=880, lines=2)  # Donde nos deja el 2 en ciencias
+        registers += analyse_stop(stop_number=1191, lines=8)  # Parada anterior a la del campus
+        registers += analyse_stop(stop_number=1358, lines=8)  # Campus miguel delibes
 
-        for register in data:
-            register.save()
+        save_registers(registers)
     except Exception as e:
+        if platform.system() == 'Windows':
+            raise
         logger.critical(str(e))
         Conexiones.enviar_email('sralloza@gmail.com', 'Error en la generación de datos del bus',
                                 'se ha producido la siguiente excepción:\n\n\n' + traceback.format_exc())
@@ -213,14 +232,7 @@ def to_excel_main():
 
 
 def update_database():
-    try:
-        with open(JSON_PATH) as fh:
-            data = json.load(fh)
-    except FileNotFoundError:
-        print(f'File {JSON_PATH!r} does not exist')
-        return 0, 0, False
-
-    data = [Register(**x) for x in data]
+    data = load_registers()
 
     saved_ids = DataBase.get_ids()
     new_ids = [x.id for x in data if x.id not in saved_ids]
@@ -263,10 +275,13 @@ def main_update_database():
             print(f'Mean speed: {total / (time.time() - t0):.2f} registers/s')
 
         if total == saved and secure_token is True:
-            os.remove(JSON_PATH)
-            print(f'Deleted file {JSON_PATH!r}')
+            try:
+                os.remove(CSV_PATH)
+            except FileNotFoundError:
+                print(f'File not found: {CSV_PATH!r}')
+            print(f'Deleted file {CSV_PATH!r}')
         else:
-            print(f'File {JSON_PATH!r} has not been removed (total != saved'
+            print(f'File {CSV_PATH!r} has not been removed (total != saved'
                   f', {total} != {saved}, securetoken={secure_token})')
 
 
@@ -274,7 +289,7 @@ def main_update_database():
 
 def send_by_email(path=None):
     if path is None:
-        path = JSON_PATH
+        path = CSV_PATH
 
     seconds = datetime.today().second
     i = 0
@@ -311,8 +326,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='BusStats')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('-generate', action='store_true')
-    group.add_argument('-update', '-updatedatabase', action='store_true')
-    group.add_argument('-registers', action='store_true')
+    group.add_argument('-update', action='store_true')
+    group.add_argument('-registers', '-number', action='store_true')
     group.add_argument('-toexcel', '-excel', action='store_true')
     group.add_argument('-mail', '-send', action='store_true')
 
@@ -329,4 +344,7 @@ if __name__ == '__main__':
         exit()
     elif opt['mail'] is True:
         send_by_email()
+        exit()
+    elif opt['registers'] is True:
+        get_length_database()
         exit()
