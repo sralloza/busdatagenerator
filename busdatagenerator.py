@@ -21,10 +21,12 @@ from rpi.downloader import Downloader
 from rpi.rpi_logging import Logger
 
 if platform.system() == 'Linux':
+    LINUX = True
     DATABASE_PATH = None
     JSON_PATH = '/home/pi/data.json'
     CSV_PATH = '/home/pi/busstats.csv'
 else:
+    LINUX = False
     DATABASE_PATH = 'D:/PYTHON/.development/busdatagenerator/busstats.sqlite'
     JSON_PATH = 'D:/Sistema/Downloads/data.json'
     CSV_PATH = 'D:/Sistema/Downloads/busstats.csv'
@@ -54,10 +56,13 @@ class DataBase:
         delay_minutes integer not null,
         stop_id integer not null)""")
 
-    def new_register(self, register, quiet=False):
+    def new_register(self, register, quiet=False, ignore=False):
         data = (register.id, register.line, register.actual_time, register.delay_minutes, register.stop_id)
         try:
-            self.cur.execute("insert into busstats values(?,?,?,?,?)", data)
+            if ignore is False:
+                self.cur.execute("insert into busstats values(?,?,?,?,?)", data)
+            else:
+                self.cur.execute("insert or ignore into busstats values(?,?,?,?,?)", data)
             self.con.commit()
             return True
         except IntegrityError:
@@ -138,7 +143,8 @@ def load_registers():
                 output.append(Register(**row))
             return output
     except FileNotFoundError:
-        print(f'File not found: {CSV_PATH!r}')
+        if LINUX is False:
+            print(f'File not found: {CSV_PATH!r}')
         return []
 
 
@@ -198,17 +204,17 @@ logger = Logger.get(__file__, __name__)
 def generate_data():
     try:
         registers = load_registers()
-        registers += analyse_stop(stop_number=686, lines=2)  # Gamazo
-        registers += analyse_stop(stop_number=682, lines=8)  # Fray luis de león
+        registers += analyse_stop(stop_number=686, lines=2)       # Gamazo
+        registers += analyse_stop(stop_number=682, lines=8)       # Fray luis de león
         registers += analyse_stop(stop_number=812, lines=(2, 8))  # Fuente dorada
         registers += analyse_stop(stop_number=833, lines=(2, 8))  # Clínico
-        registers += analyse_stop(stop_number=880, lines=2)  # Donde nos deja el 2 en ciencias
-        registers += analyse_stop(stop_number=1191, lines=8)  # Parada anterior a la del campus
-        registers += analyse_stop(stop_number=1358, lines=8)  # Campus miguel delibes
+        registers += analyse_stop(stop_number=880, lines=2)       # Donde nos deja el 2 en ciencias
+        registers += analyse_stop(stop_number=1191, lines=8)      # Parada anterior a la del campus
+        registers += analyse_stop(stop_number=1358, lines=8)      # Campus miguel delibes
 
         save_registers(registers)
     except Exception as e:
-        if platform.system() == 'Windows':
+        if LINUX is False:
             raise
         logger.critical(str(e))
         Conexiones.enviar_email('sralloza@gmail.com', 'Error en la generación de datos del bus',
@@ -249,7 +255,7 @@ def update_database():
 
 
 def main_update_database():
-    if platform.system() == 'Linux':
+    if LINUX is True:
         raise InvalidPlatformError('Database can only be used in Windows')
     from rpi.tiempo import segs_to_str
     t0 = time.time()
@@ -323,7 +329,7 @@ def send_by_email(path=None):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 1 and platform.system() == 'Linux':
+    if len(sys.argv) == 1 and LINUX is True:
         sys.argv.append('-generate')
 
     parser = argparse.ArgumentParser(prog='BusStats')
