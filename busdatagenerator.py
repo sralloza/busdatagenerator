@@ -146,6 +146,8 @@ def load_registers():
         if LINUX is False:
             print(f'File not found: {CSV_PATH!r}')
         return []
+    except StopIteration:
+        return []
 
 
 def save_registers(registers):
