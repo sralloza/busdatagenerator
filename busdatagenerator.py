@@ -16,7 +16,7 @@ from typing import Iterable
 
 from bs4 import BeautifulSoup as Soup
 from pandas import read_sql, ExcelWriter
-from rpi.conexiones import Conexiones
+from rpi.connections import Connections
 from rpi.downloader import Downloader
 from rpi.rpi_logging import Logger
 
@@ -101,6 +101,7 @@ class DataBase:
 
 
 db = DataBase()
+
 
 def get_length_database():
     db.use()
@@ -206,21 +207,21 @@ logger = Logger.get(__file__, __name__)
 def generate_data():
     try:
         registers = load_registers()
-        registers += analyse_stop(stop_number=686, lines=2)       # Gamazo
-        registers += analyse_stop(stop_number=682, lines=8)       # Fray luis de león
+        registers += analyse_stop(stop_number=686, lines=2)  # Gamazo
+        registers += analyse_stop(stop_number=682, lines=8)  # Fray luis de león
         registers += analyse_stop(stop_number=812, lines=(2, 8))  # Fuente dorada
         registers += analyse_stop(stop_number=833, lines=(2, 8))  # Clínico
-        registers += analyse_stop(stop_number=880, lines=2)       # Donde nos deja el 2 en ciencias
-        registers += analyse_stop(stop_number=1191, lines=8)      # Parada anterior a la del campus
-        registers += analyse_stop(stop_number=1358, lines=8)      # Campus miguel delibes
+        registers += analyse_stop(stop_number=880, lines=2)  # Donde nos deja el 2 en ciencias
+        registers += analyse_stop(stop_number=1191, lines=8)  # Parada anterior a la del campus
+        registers += analyse_stop(stop_number=1358, lines=8)  # Campus miguel delibes
 
         save_registers(registers)
     except Exception as e:
         if LINUX is False:
             raise
         logger.critical(str(e))
-        Conexiones.enviar_email('sralloza@gmail.com', 'Error en la generación de datos del bus',
-                                'se ha producido la siguiente excepción:\n\n\n' + traceback.format_exc())
+        Connections.send_email('sralloza@gmail.com', 'Error en la generación de datos del bus',
+                               'se ha producido la siguiente excepción:\n\n\n' + traceback.format_exc())
 
 
 def to_excel_main():
@@ -259,7 +260,7 @@ def update_database():
 def main_update_database():
     if LINUX is True:
         raise InvalidPlatformError('Database can only be used in Windows')
-    from rpi.tiempo import segs_to_str
+    from rpi.time_operations import secs_to_str
     t0 = time.time()
     total = 0
     saved = 0
@@ -277,7 +278,7 @@ def main_update_database():
         else:
             print(f'Saved {saved} registers')
 
-        print(f'Executed in {segs_to_str(time.time() - t0)}')
+        print(f'Executed in {secs_to_str(time.time() - t0)}')
 
         if total != 0:
             print(f'Mean speed: {total / (time.time() - t0):.2f} registers/s')
@@ -321,7 +322,7 @@ def send_by_email(path=None):
         print(f'File {path!r} does not exist')
         return
 
-    r = Conexiones.enviar_email('sralloza@gmail.com', 'Datos de autobuses', '', files=path)
+    r = Connections.send_email('sralloza@gmail.com', 'Datos de autobuses', '', files=path)
 
     if r is True:
         os.remove(path)
