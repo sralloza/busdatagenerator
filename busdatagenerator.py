@@ -18,7 +18,7 @@ from bs4 import BeautifulSoup as Soup
 from pandas import read_sql, ExcelWriter
 from rpi.connections import Connections
 from rpi.downloader import Downloader
-from rpi.rpi_logging import Logger
+from rpi.rpi_logging import Logging
 
 if platform.system() == 'Linux':
     LINUX = True
@@ -171,7 +171,7 @@ def analyse_stop(stop_number: int, lines=None):
     else:
         lines = tuple([str(x) for x in lines])
 
-    d = Downloader()
+    d = Downloader(silenced=True)
     r = d.get(f'http://www.auvasa.es/parada.asp?codigo={stop_number}')
     s = Soup(r.content, 'html.parser')
 
@@ -201,7 +201,7 @@ def analyse_stop(stop_number: int, lines=None):
     return tuple(output)
 
 
-logger = Logger.get(__file__, __name__)
+logger = Logging.get(__file__, __name__)
 
 
 def generate_data():
@@ -322,7 +322,7 @@ def send_by_email(path=None):
         print(f'File {path!r} does not exist')
         return
 
-    r = Connections.send_email('sralloza@gmail.com', 'Datos de autobuses', '', files=path)
+    r = Connections.send_email('sralloza@gmail.com', 'Datos de autobuses', '', files={path: 'busstats.csv'})
 
     if r is True:
         os.remove(path)
