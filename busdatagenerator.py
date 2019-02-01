@@ -1,47 +1,60 @@
 #!/usr/bin/python
 
+"""Bus stats analyser. Made for getting bus timeouts stats."""
 import argparse
 import hashlib
+import logging
 import os
 import platform
+import re
 import sqlite3
 import sys
 import time
 import traceback
 from csv import DictReader, DictWriter
-from dataclasses import dataclass
 from datetime import datetime
-from sqlite3 import IntegrityError
 from typing import Iterable
 
+import requests
 from bs4 import BeautifulSoup as Soup
+from dataclasses import dataclass
 from pandas import read_sql, ExcelWriter
 from rpi.connections import Connections
+from rpi.custom_logging import configure_logging
 from rpi.downloader import Downloader
-from rpi.rpi_logging import Logging
+from rpi.encryption import encrypt
+from rpi.filesize import size
+
+configure_logging(name='BusStats', use_logs_folder=True)
 
 if platform.system() == 'Linux':
     LINUX = True
     DATABASE_PATH = None
-    JSON_PATH = '/home/pi/data.json'
     CSV_PATH = '/home/pi/busstats.csv'
 else:
     LINUX = False
-    DATABASE_PATH = 'D:/PYTHON/.development/busdatagenerator/busstats.sqlite'
-    JSON_PATH = 'D:/Sistema/Downloads/data.json'
+    DATABASE_PATH = 'D:/.database/sql/busstats.sqlite'
     CSV_PATH = 'D:/Sistema/Downloads/busstats.csv'
+
+SERVER_ADDRESS = 'http://sralloza.sytes.net:5415'
 
 
 class InvalidPlatformError(Exception):
-    """Plataforma inválida"""
+    """Invalid platform"""
 
 
 class DataBase:
+    """Manages the connection with the database"""
+
     def __init__(self):
+        if LINUX is True:
+            raise InvalidPlatformError('Database can only be used in windows')
+
         self.con = None
         self.cur = None
 
     def use(self, database_path=None):
+        """Starts connection with database, if it wasn't connected yet."""
         if self.con is not None:
             return
         if database_path is None:
@@ -52,36 +65,23 @@ class DataBase:
         self.cur.execute("""create table if not exists busstats (
         id varchar primary key,
         line varchar not null,
-        actual_time varchar not null,
+        actual_datetime varchar not null,
         delay_minutes integer not null,
         stop_id integer not null)""")
 
-    def new_register(self, register, quiet=False, ignore=False):
-        data = (register.id, register.line, register.actual_time, register.delay_minutes, register.stop_id)
-        try:
-            if ignore is False:
-                self.cur.execute("insert into busstats values(?,?,?,?,?)", data)
-            else:
-                self.cur.execute("insert or ignore into busstats values(?,?,?,?,?)", data)
-            self.con.commit()
-            return True
-        except IntegrityError:
-            if quiet is False:
-                print('Register already exists: ' + str(register))
-            return False
-
     def insert_multiple_registers(self, data):
-        """Saves multiple registers at once.
+        """Saves multiple registers at once to the database.
 
-        :type data: Iterable[Register]
+        Args:
+            data (Iterable[Register]): iterable containing registers to save to database.
         """
-
         values = []
         ids = self.get_ids()
 
-        for d in data:
-            if d.id not in ids:
-                values.append((d.id, d.line, d.actual_time, d.delay_minutes, d.stop_id))
+        for element in data:
+            if element.id not in ids:
+                values.append((element.id, element.line, element.actual_datetime,
+                               element.delay_minutes, element.stop_id))
 
         values = tuple(values)
 
@@ -91,6 +91,7 @@ class DataBase:
 
     @staticmethod
     def get_ids():
+        """Returns a tuple with all the register's IDs saved in the database."""
         self = DataBase.__new__(DataBase)
         self.__init__()
         self.use()
@@ -100,41 +101,47 @@ class DataBase:
         return tuple(registers)
 
 
-db = DataBase()
+DB = DataBase()
 
 
 def get_length_database():
-    db.use()
-    db.cur.execute("select count(id) from busstats")
-    total = db.cur.fetchone()[0]
-    print(f'{total} registers saved in database')
+    """Returns the number of registers saved in the database."""
+    DB.use()
+    DB.cur.execute("select count(id) from busstats")
+    total = DB.cur.fetchone()[0]
+
+    return total
 
 
 @dataclass
 class Register:
+    """Represents a Bus Stat Register"""
     line: str
-    actual_time: str
+    actual_datetime: str
     delay_minutes: int
     stop_id: int
 
     def __post_init__(self):
         self.line = str(self.line)
-        self.actual_time = str(self.actual_time)
+        self.actual_datetime = str(self.actual_datetime)
         self.delay_minutes = int(self.delay_minutes)
         self.stop_id = int(self.stop_id)
 
     @property
     def id(self):
-        p = (self.line, self.actual_time, self.stop_id)
+        """Returns the id of a register made with sha1"""
+        p = (self.line, self.actual_datetime, self.stop_id)
         return hashlib.sha1(str(p).encode()).hexdigest()
 
-    def to_database(self, quiet=False):
-        db.use()
-        return db.new_register(self, quiet)
 
-
-def load_registers():
+def load_registers() -> list:
+    """Returns a tuple with all the registers found in the csv file."""
     try:
+        if not LINUX:
+            with open(CSV_PATH, 'r', encoding='utf-8') as csv_file:
+                number_of_lines = len(csv_file.read().splitlines()) - 2
+            print(f'Preliminar scan found {number_of_lines} new registers')
+
         with open(CSV_PATH, 'r', encoding='utf-8') as csv_file:
             csv_reader = DictReader(csv_file)
             next(csv_reader)
@@ -152,8 +159,9 @@ def load_registers():
 
 
 def save_registers(registers):
+    """Saves the registers to the csv file."""
     with open(CSV_PATH, 'w', encoding='utf-8') as csv_file:
-        fieldnames = ['line', 'actual_time', 'delay_minutes', 'stop_id']
+        fieldnames = ['line', 'actual_datetime', 'delay_minutes', 'stop_id']
         csv_writer = DictWriter(csv_file, fieldnames, quotechar='|', lineterminator='\n')
 
         csv_writer.writeheader()
@@ -162,6 +170,12 @@ def save_registers(registers):
 
 
 def analyse_stop(stop_number: int, lines=None):
+    """Gets data from a bus stop.
+
+    Args:
+        stop_number (int): stop id to get data from.
+        lines (int, Iterable): line or lines to get data from.
+    """
     if lines is None:
         lines = None
     elif isinstance(lines, int):
@@ -188,7 +202,8 @@ def analyse_stop(stop_number: int, lines=None):
         try:
             if '+' in t[-1]:
                 t[-1] = 999
-            register = Register(t[0], datetime.today().strftime('%Y-%m-%d %H:%M:%S'), int(t[-1]), stop_number)
+            register = Register(t[0], datetime.today().strftime('%Y-%m-%d %H:%M:%S'), int(t[-1]),
+                                stop_number)
         except ValueError:
             continue
 
@@ -201,10 +216,10 @@ def analyse_stop(stop_number: int, lines=None):
     return tuple(output)
 
 
-logger = Logging.get(__file__, __name__)
-
-
 def generate_data():
+    """Gets all the data from some set bus stops."""
+    logger = logging.getLogger(__name__)
+
     try:
         registers = load_registers()
         registers += analyse_stop(stop_number=686, lines=2)  # Gamazo
@@ -220,18 +235,24 @@ def generate_data():
         if LINUX is False:
             raise
         logger.critical(str(e))
-        Connections.send_email('sralloza@gmail.com', 'Error en la generación de datos del bus',
-                               'se ha producido la siguiente excepción:\n\n\n' + traceback.format_exc())
+        Connections.send_email(
+            'sralloza@gmail.com', 'Error en la generación de datos del bus',
+            'Se ha producido la siguiente excepción:\n\n\n' + traceback.format_exc())
 
 
 def to_excel_main():
-    db.use()
-    df = read_sql('select linea,ta,tr,id_parada from busstats order by ta, linea', db.con)
+    """Saves the data from the database to an excel file."""
 
-    print(f'Dimensions: {df.shape}')
+    if LINUX is True:
+        raise InvalidPlatformError('Can not be used in linux, only in Windows')
+
+    DB.use()
+    data_frame = read_sql('select linea,ta,tr,id_parada from busstats order by ta, linea', DB.con)
+
+    print(f'Dimensions: {data_frame.shape}')
 
     ew = ExcelWriter('busstats.xlsx')
-    df.to_excel(ew, index=None)
+    data_frame.to_excel(ew, index=None)
     try:
         ew.save()
     except PermissionError:
@@ -241,6 +262,11 @@ def to_excel_main():
 
 
 def update_database():
+    """Updates the database with the registers found in the csv file."""
+
+    if LINUX:
+        raise InvalidPlatformError('Can only be used in windows')
+
     data = load_registers()
 
     saved_ids = DataBase.get_ids()
@@ -250,14 +276,15 @@ def update_database():
 
     print(f'Found {registers_number} new registers')
 
-    db.use()
+    DB.use()
 
-    saved = db.insert_multiple_registers(data)
+    saved = DB.insert_multiple_registers(data)
 
     return registers_number, saved, True
 
 
 def main_update_database():
+    """Main function."""
     if LINUX is True:
         raise InvalidPlatformError('Database can only be used in Windows')
     from rpi.time_operations import secs_to_str
@@ -270,8 +297,6 @@ def main_update_database():
         total, saved, secure_token = update_database()
     except KeyboardInterrupt:
         pass
-    except Exception:
-        raise
     finally:
         if saved == 0:
             print(f"No registers have been saved")
@@ -294,44 +319,44 @@ def main_update_database():
                   f', {total} != {saved}, securetoken={secure_token})')
 
 
-#
+def get_auto():
+    """Using HTTP, gets the csv file from the server and deletes it if the transmission was correct.
+    """
 
-def send_by_email(path=None):
-    if path is None:
-        path = CSV_PATH
+    if LINUX is True:
+        raise InvalidPlatformError('Database can only be used in Windows')
 
-    seconds = datetime.today().second
-    i = 0
+    def create_token():
+        print('Creating token')
+        today = datetime.today()
+        anything = (today.year, today.month, today.day)
 
-    try:
-        while seconds != 15:
-            if i == 0:
-                estimation = 15 - seconds
-                while estimation < 0:
-                    estimation += 60
-                print(f'Waiting for seconds=15 ({estimation})')
-            time.sleep(0.5)
-            seconds = datetime.today().second
-            i += 1
-    except KeyboardInterrupt:
-        print('Forcing sending...')
+        token = encrypt(repr(anything))
+        return token
 
-    print('Sending...')
+    downloader = Downloader()
+    file_request = downloader.get(SERVER_ADDRESS)
 
-    if os.path.isfile(path) is False:
-        print(f'File {path!r} does not exist')
-        return
+    print(f'status code: {file_request.status_code!r}')
 
-    r = Connections.send_email('sralloza@gmail.com', 'Datos de autobuses', '', files={path: 'busstats.csv'})
-
-    if r is True:
-        os.remove(path)
-        print('File deleted')
+    if file_request.status_code == 200:
+        print(f'Saving file ({size(len(file_request.content))})')
+        # noinspection PyBroadException
+        try:
+            with open(CSV_PATH, 'wb') as f:
+                f.write(file_request.content)
+        except Exception as e:
+            print(f'Exception caught ({e.__class__.__name__}): {e}')
+        else:
+            print('Requesting delete')
+            delete_request = requests.delete(SERVER_ADDRESS, data={'token': create_token()})
+            print(f'delete result: {delete_request.status_code}')
     else:
-        print('File can not be deleted')
+        temp_pat = re.compile(r'(?:<p>)(?:Error code explanation:)(.+)(?:</p>)')
+        print(f'Error getting file: {temp_pat.search(file_request.text).group(1)}')
 
 
-if __name__ == '__main__':
+def bus_stats_interface():
     if len(sys.argv) == 1 and LINUX is True:
         sys.argv.append('-generate')
 
@@ -341,7 +366,8 @@ if __name__ == '__main__':
     group.add_argument('-update', action='store_true')
     group.add_argument('-registers', '-number', action='store_true')
     group.add_argument('-toexcel', '-excel', action='store_true')
-    group.add_argument('-mail', '-send', action='store_true')
+    group.add_argument('-get', action='store_true')
+    group.add_argument('-all', action='store_true', help='union of -get and -update')
 
     opt = vars(parser.parse_args())
 
@@ -354,9 +380,17 @@ if __name__ == '__main__':
     elif opt['toexcel'] is True:
         to_excel_main()
         exit()
-    elif opt['mail'] is True:
-        send_by_email()
+    elif opt['get'] is True:
+        get_auto()
         exit()
     elif opt['registers'] is True:
-        get_length_database()
+        print(f'{get_length_database()} registers saved in database')
         exit()
+    elif opt['all'] is True:
+        get_auto()
+        main_update_database()
+        exit()
+
+
+if __name__ == '__main__':
+    bus_stats_interface()
