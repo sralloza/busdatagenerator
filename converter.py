@@ -12,9 +12,11 @@ logger = logging.getLogger('converter')
 
 
 def convert():
+    today = datetime.datetime.today()
+
     output_db = DataBase()
 
-    output_db.use(database_path='copy.sqlite')
+    output_db.use(database_path=f'{today}.sqlite')
 
     logger.debug('Loading data')
     dm = DataManager.load()

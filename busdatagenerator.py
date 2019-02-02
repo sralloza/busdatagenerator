@@ -18,23 +18,24 @@ from typing import Iterable
 import requests
 from bs4 import BeautifulSoup as Soup
 from dataclasses import dataclass
-from pandas import read_sql, ExcelWriter
 from rpi.connections import Connections
 from rpi.custom_logging import configure_logging
 from rpi.downloader import Downloader
 from rpi.encryption import encrypt
 from rpi.filesize import size
 
-configure_logging(name='BusStats', use_logs_folder=True)
 
 if platform.system() == 'Linux':
     LINUX = True
     DATABASE_PATH = None
-    CSV_PATH = '/home/pi/busstats.csv'
+    CSV_PATH = '/home/pi/busstats/busstats.csv'
+    configure_logging(filename='/home/pi/busstats/busstats.log')
+
 else:
     LINUX = False
     DATABASE_PATH = 'D:/.database/sql/busstats.sqlite'
     CSV_PATH = 'D:/Sistema/Downloads/busstats.csv'
+    configure_logging(name='busstats')
 
 SERVER_ADDRESS = 'http://sralloza.sytes.net:5415'
 
@@ -47,14 +48,15 @@ class DataBase:
     """Manages the connection with the database"""
 
     def __init__(self):
-        if LINUX is True:
-            raise InvalidPlatformError('Database can only be used in windows')
 
         self.con = None
         self.cur = None
 
     def use(self, database_path=None):
         """Starts connection with database, if it wasn't connected yet."""
+        if LINUX is True:
+            raise InvalidPlatformError('Database can only be used in windows')
+
         if self.con is not None:
             return
         if database_path is None:
@@ -245,6 +247,8 @@ def to_excel_main():
 
     if LINUX is True:
         raise InvalidPlatformError('Can not be used in linux, only in Windows')
+
+    from pandas import read_sql, ExcelWriter
 
     DB.use()
     data_frame = read_sql('select linea,ta,tr,id_parada from busstats order by ta, linea', DB.con)
