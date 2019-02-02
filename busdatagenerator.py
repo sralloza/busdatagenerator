@@ -330,6 +330,8 @@ def get_auto():
     if LINUX is True:
         raise InvalidPlatformError('Database can only be used in Windows')
 
+    print('Starting Bus Stats Transfer Protocol')
+
     def create_token():
         print('Creating token')
         today = datetime.today()
